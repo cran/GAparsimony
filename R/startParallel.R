@@ -21,23 +21,24 @@ startParallel <- function(parallel = TRUE, ...)
   # set default parallel functionality depending on system OS:
   # - snow functionality on Windows OS
   # - multicore functionality on Unix-like systems (Unix/Linux & Mac OSX)
-  parallelType <- if(.Platform$OS.type == "windows") 
-                    "snow" else "multicore"
-  #parallelType <- "snow"
+  parallelType <- if(.Platform$OS.type == "windows") "snow" else "multicore"
+  
   # get the current number of cores available
   numCores <- parallel::detectCores()
 
   # set parameters for parallelization
   if(is.logical(parallel))
-    { NULL }
-  else if(is.numeric(parallel))
-    { numCores <- as.integer(parallel)
-      parallel <- TRUE }
-  else if(is.character(parallel))
-    { parallelType <- parallel
-      parallel <- TRUE 
-    }
-  else parallel <- FALSE
+    {
+    NULL 
+    } else if(is.numeric(parallel))
+      {
+      numCores <- as.integer(parallel)
+      parallel <- TRUE
+      }  else if(is.character(parallel))
+          {
+          parallelType <- parallel
+          parallel <- TRUE 
+          } else parallel <- FALSE
   
   attr(parallel, "type") <- parallelType
   attr(parallel, "cores") <- numCores
@@ -71,9 +72,26 @@ startParallel <- function(parallel = TRUE, ...)
       }
       else if(parallelType == "multicore")
         { # multicore functionality on Unix-like systems
-          cl <- parallel::makeCluster(numCores, type = "FORK")
-          doParallel::registerDoParallel(cl, cores = numCores) 
+          cl <- parallel::makeCluster(numCores)
           attr(parallel, "cluster") <- cl
+          # export parent environment
+          varlist <- ls(envir = parent.frame(), all.names = TRUE)
+          varlist <- varlist[varlist != "..."]
+          parallel::clusterExport(cl, varlist = varlist,
+                                  # envir = parent.env(environment())
+                                  envir = parent.frame() )
+          # export global environment (workspace)
+          parallel::clusterExport(cl, 
+                                  varlist = ls(envir = globalenv(), 
+                                               all.names = TRUE),
+                                  envir = globalenv())
+          # load current packages in workers
+          pkgs <- .packages()
+          lapply(pkgs, function(pkg) 
+                 parallel::clusterCall(cl, library, package = pkg, 
+                                       character.only = TRUE))
+          #        
+          doParallel::registerDoParallel(cl, cores = numCores) 
         }
       else 
         { stop("Only 'snow' and 'multicore' clusters allowed!") }
@@ -81,3 +99,13 @@ startParallel <- function(parallel = TRUE, ...)
 
   return(parallel)
 }
+               
+               
+stopParallel <- function(cluster, ...)
+{ 
+# Stop parallel computing for GAPARSIMONY package
+  parallel::stopCluster(cluster)
+  foreach::registerDoSEQ()
+  invisible()
+}
+               

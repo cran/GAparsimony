@@ -8,13 +8,13 @@
 \title{GA-PARSIMONY}
 
 \description{A GA-based optimization method for searching accurate parsimonious models by combining feature selection, model tuning, and parsimonious model selection (PMS).
- PMS procedure is based on separate cost and complexity evaluations. The best individuals are initially sorted by an error fitness function, and afterwards, models with similar costs are rearranged according to model complexity measurement so as to foster models of lesser complexity. The algorithm can be run sequentially or in parallel using an explicit master-slave parallelisation.}
+ PMS procedure is based on separate cost and complexity evaluations. The best individuals are initially sorted by an error fitness function, and afterwards, models with similar costs are rearranged according to their model complexity so as to foster models of lesser complexity. The algorithm can be run sequentially or in parallel using an explicit master-slave parallelisation.}
 
 \usage{
 ga_parsimony(fitness, \dots, 
 	min_param, max_param, nFeatures,  
 	names_param=NULL, names_features=NULL,
-	iter_ini=0, object=NULL,
+	object=NULL, iter_ini=NULL,
 	type_ini_pop="improvedLHS", 
 	popSize = 50, pcrossover = 0.8,  maxiter = 40, 
 	feat_thres=0.90, rerank_error = 0.0, iter_start_rerank = 0,
@@ -24,7 +24,8 @@ ga_parsimony(fitness, \dots,
 	selection = parsimony_nlrSelection, 
 	crossover = parsimony_crossover, 
 	mutation = parsimony_mutation, 
-	keep_history = FALSE, 
+	keep_history = FALSE,
+	path_name_to_save_iter = NULL,	
 	early_stop = maxiter, maxFitness = Inf, suggestions = NULL, 
 	parallel = FALSE,
 	monitor = if (interactive()) parsimony_monitor else FALSE, 
@@ -47,8 +48,8 @@ Note: the chromosome is a concatenated real vector with the model parameters (pa
 \item{nFeatures}{a value specifying the number of maximum input features.}
 \item{names_param}{a vector with the name of the model parameters.}
 \item{names_features}{a vector with the name of the input features.}
-\item{iter_ini}{initial iteration. If 'iter_ini' is > 0, 'object' must be provided to continue the optimization process.}
-\item{object}{object of 'ga_parsimony' class to use if 'iter_ini'>0}
+\item{object}{object of 'ga_parsimony' class to continue GA process. 'ga_parsimony@history' must be provided. Note: all GA settings are obtained from 'object' in order to continue the GA process.}
+\item{iter_ini}{Iteration/generation of 'object@history' to be used when 'object' is provided. If 'iter_ini==NULL' uses the last iteration of 'object'.}
 \item{type_ini_pop}{method to create the first population with 'parsimony_population' function. This function is called when iter_ini==0 and 'suggestions' are not provided. Methods='randomLHS','geneticLHS','improvedLHS','maximinLHS','optimumLHS','random'. First 5 methods correspond with several latine hypercube sampling.}
 \item{popSize}{the population size.}
 \item{pcrossover}{the probability of crossover between pairs of chromosomes. Typically this is a large value and by default is set to 0.8.}
@@ -65,9 +66,10 @@ Note: the chromosome is a concatenated real vector with the model parameters (pa
 \item{crossover}{an R function performing crossover, i.e. a function which forms offsprings by combining part of the genetic information from their parents. See \code{\link{parsimony_crossover}} for available functions.}
 \item{mutation}{an R function performing mutation, i.e. a function which randomly alters the values of some genes in a parent chromosome. See \code{\link{parsimony_mutation}} for available functions.}
 \item{keep_history}{If it is TRUE keeps in the list \code{object@history} each generation. This parameter must set TRUE in order to use 'plot' method or 'parsimony_importance' function.}
+\item{path_name_to_save_iter}{If it is not NULL save the 'ga_parsimony' object to the 'path_name_to_save_iter' file at the end of each iteration. Note: use extension '.RData', example 'object.RData'}
 \item{early_stop}{the number of consecutive generations without any improvement in the best fitness value before the GA is stopped.}
 \item{maxFitness}{the upper bound on the fitness function after that the GA search is interrupted. Default value is set to +Inf}
-\item{suggestions}{a matrix of solutions strings to be included in the initial population. If provided the number of columns must match (object@nParams+object@nFeatures)}
+\item{suggestions}{a matrix of solutions strings to be included in the initial population. If provided the number of columns must match (object@nParams+object@nFeatures). Can be used a previous population, for example: 'ga_parsimony@history[[2]]$population'. }
 \item{parallel}{a logical argument specifying if parallel computing should be used (\code{TRUE}) or not (\code{FALSE}, default) for evaluating the fitness function. This argument could also be used to specify the number of cores to employ; by default, this is taken from \code{\link[parallel]{detectCores}}. Finally, the functionality of parallelization depends on system OS: on Windows only 'snow' type functionality is available, while on Unix/Linux/Mac OSX both 'snow' and 'multicore' (default) functionalities are available.}
 \item{monitor}{a logical or an R function which takes as input the current state of the \code{ga_parsimony-class} object and show the evolution of the search. By default, for interactive sessions, the function \code{\link{parsimony_monitor}} depending on whether or not is an RStudio session, prints the average and best fitness values at each iteration. If set to \code{plot} these information are plotted on a graphical device. Other functions can be written by the user and supplied as argument. In non interactive sessions, by default \code{monitor = FALSE} so any output is suppressed.}
 \item{seed_ini}{an integer value containing the random number generator state. This argument can be used to replicate the results of a GA search. Note that if parallel computing is required, the \pkg{doRNG} package must be installed.}
@@ -125,7 +127,7 @@ Antonanzas-Torres F., Urraca R., Antonanzas J., Fernandez-Ceniceros J., Martinez
 # and 'caret' packages. Validation errors and iterations have been
 # reduced to speedup the process
 
-
+library(GAparsimony)
 # Training and testing Datasets
 library(caret)
 
@@ -206,13 +208,13 @@ GAparsimony_model <- ga_parsimony(fitness=fitness_SVM,
                                   names_features=colnames(data_train)[-ncol(data_train)],
                                   keep_history = TRUE, 
                                   rerank_error = rerank_error,
-                                  popSize = 10, #Change to 40
-                                  maxiter = 1, # Change to 100
+                                  popSize = 5, #Change to 40!!!
+                                  maxiter = 1, # Change to 100!!!
                                   early_stop=10,
                                   feat_thres=0.90,# Perc selec features in first iter
                                   feat_mut_thres=0.10,# Prob. feature to be 1 in mutation
                                   not_muted=1,
-                                  parallel = FALSE, # speedup with n cores or TRUE=all
+                                  parallel = FALSE, # speedup with 'n' cores or all with TRUE
                                   seed_ini = 1234)
 
 
@@ -289,7 +291,7 @@ print(parsimony_importance(GAparsimony_model))
     # Obtain Complexity = Num_Features*1E6+Number of support vectors
     complexity <- sum(selec_feat)*1E6+model$finalModel@nSV 
     
-    # Return(-validation error, -testing error, model_complexity)
+    # Return(validation error, testing error, model_complexity)
     vect_errors <- c(kappa_val=kappa_val,kappa_test=kappa_test,complexity=complexity)
     return(vect_errors)
   }

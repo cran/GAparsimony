@@ -14,7 +14,7 @@
 ga_parsimony <- function (fitness, ..., 
                           min_param, max_param, nFeatures,  
                           names_param=NULL, names_features=NULL,
-                          iter_ini=0, object=NULL,
+                          object=NULL, iter_ini=NULL,
                           type_ini_pop="improvedLHS", 
                           popSize = 50, pcrossover = 0.8,  maxiter = 40, 
                           feat_thres=0.90, rerank_error = 0.0, iter_start_rerank = 0,
@@ -24,7 +24,8 @@ ga_parsimony <- function (fitness, ...,
                           selection = parsimony_nlrSelection, 
                           crossover = parsimony_crossover, 
                           mutation = parsimony_mutation, 
-                          keep_history = FALSE, 
+                          keep_history = FALSE,
+                          path_name_to_save_iter = NULL,
                           early_stop = maxiter, maxFitness = Inf, suggestions = NULL, 
                           parallel = FALSE,
                           monitor = if (interactive()) parsimony_monitor else FALSE, 
@@ -48,6 +49,7 @@ ga_parsimony <- function (fitness, ...,
   if (missing(min_param) & missing(max_param)) stop("A min and max range of values must be provided!!!")
   if (length(min_param)!=length(max_param)) stop("min_param and max_param must have the same length!!!")
   if (missing(nFeatures)) stop("Number of features (nFeatures) must be provided!!!")
+  if (!is.null(object)) if (is.null(object@history)) stop("'object' must be provided with 'object@history'!!!")
   
   # nvars=chromosome length
   # -----------------------
@@ -63,29 +65,33 @@ ga_parsimony <- function (fitness, ...,
   
   # Initialize parallel computing
   # ----------------------
-  parallel <- if (is.logical(parallel)) {if (parallel) startParallel(parallel) else FALSE} else {startParallel(parallel)}
-  on.exit(if (parallel) parallel::stopCluster(attr(parallel,"cluster")))
+  # Start parallel computing (if needed)
+  if(is.logical(parallel))
+    {
+    if(parallel) {parallel <- startParallel(parallel);stopCluster <- TRUE} else {parallel <- stopCluster <- FALSE} 
+    } else {
+          stopCluster <- if(inherits(parallel, "cluster")) FALSE else TRUE
+          parallel <- startParallel(parallel)
+            }
+  on.exit(if(parallel & stopCluster) stopParallel(attr(parallel, "cluster")))
   # define operator to use depending on parallel being TRUE or FALSE
-  `%DO%` <- if(parallel) `%dopar%` else `%do%`
+  # `%DO%` <- if(parallel && requireNamespace("doRNG", quietly = TRUE)) doRNG::`%dorng%`
+  #          else if(parallel) `%dopar%` else `%do%`
+              
+              
+ # parallel <- if (is.logical(parallel)) {if (parallel) startParallel(parallel) else FALSE} else {startParallel(parallel)}
+ # on.exit(if (parallel) parallel::stopCluster(attr(parallel,"cluster")))
+ # define operator to use depending on parallel being TRUE or FALSE
+ # `%DO%` <- if(parallel) `%dopar%` else `%do%`
   
  
-    # Get suggestions
-    # ---------------
-    if (is.null(suggestions))
+  # Get suggestions
+  # ---------------
+  if (!is.null(suggestions))
     {
-      suggestions <- matrix(nrow = 0, ncol = nvars)
-    } else
-    {
-      if (is.vector(suggestions))
-      {
-        if (nvars > 1) suggestions <- matrix(suggestions, nrow = 1) else suggestions <- matrix(suggestions, ncol = 1)
-      } else 
-      {
-        suggestions <- as.matrix(suggestions)
-      }
-      if (nvars != ncol(suggestions)) stop("Provided suggestions (ncol) matrix do not match number of variables of the problem!")
+      if (is.vector(suggestions)) stop("Provided suggestions is a vector")
+      if (nvars != ncol(suggestions)) stop("Provided suggestions (ncol) matrix do not match the number of variables (model parameters + vector with selected features) in the problem!")
     }
-  
   
   
   # Initial settings
@@ -98,43 +104,73 @@ ga_parsimony <- function (fitness, ...,
   FitnessVal_vect <- rep(NA, popSize)
   FitnessTst_vect <- rep(NA, popSize)
   Complexity_vect <- rep(NA, popSize)
- 
   
-  # Initialize 'object'
-  # -------------------
-  object <- new("ga_parsimony", call = call, 
-                min_param = min_param, max_param = max_param,
-                nParams = nParams, feat_thres=feat_thres, 
-                feat_mut_thres=feat_mut_thres, not_muted=not_muted, 
-                rerank_error=rerank_error, iter_start_rerank=iter_start_rerank,
-                nFeatures=nFeatures, 
-                names_param = if (is.null(names_param)) character() else names_param,
-                names_features = if (is.null(names_features)) character() else names_features, 
-                popSize = popSize, iter = 0, early_stop = early_stop, maxiter = maxiter, 
-                suggestions = suggestions, population = matrix(), elitism = elitism, 
-                pcrossover = pcrossover, minutes_total=0,
-                history = vector(mode = "list",length = maxiter),
-                pmutation = if (is.numeric(pmutation)) pmutation else NA, 
-                fitnessval = FitnessVal_vect, fitnesstst=FitnessTst_vect, complexity=Complexity_vect,
-                summary = fitnessSummary, bestSolList = bestSolList)
-
   
-  # First population
-  # ----------------
-  Pop <- matrix(as.double(NA), nrow = popSize, ncol = nvars)
-  ng <- min(nrow(suggestions), popSize)
-  if (ng > 0) Pop[1:ng, ] <- suggestions
   
-  if (popSize > ng) Pop[(ng + 1):popSize, ] <- population(object,type_ini_pop=type_ini_pop)[1:(popSize-ng),]
-  object@population <- Pop
-  if (verbose)
+  if (is.null(object))
   {
-    print("Step 0. Initial population")
-    print(head(cbind(FitnessVal_vect, FitnessTst_vect, Complexity_vect, object@population),10))
-    readline(prompt="Press [enter] to continue")
+    # Initialize 'object'
+    # -------------------
+    object <- new("ga_parsimony", call = call, 
+                  min_param = min_param, max_param = max_param,
+                  nParams = nParams, feat_thres=feat_thres, 
+                  feat_mut_thres=feat_mut_thres, not_muted=not_muted, 
+                  rerank_error=rerank_error, iter_start_rerank=iter_start_rerank,
+                  nFeatures=nFeatures, 
+                  names_param = if (is.null(names_param)) character() else names_param,
+                  names_features = if (is.null(names_features)) character() else names_features, 
+                  popSize = popSize, iter = 0, early_stop = early_stop, maxiter = maxiter, 
+                  suggestions = suggestions, population = matrix(), elitism = elitism, 
+                  pcrossover = pcrossover, minutes_total=0, best_score = -Inf,
+                  history = vector(mode = "list",length = maxiter),
+                  pmutation = if (is.numeric(pmutation)) pmutation else NA, 
+                  fitnessval = FitnessVal_vect, fitnesstst=FitnessTst_vect, complexity=Complexity_vect,
+                  summary = fitnessSummary, bestSolList = bestSolList)
+    
+    # First population
+    # ----------------
+    Pop <- population(object,type_ini_pop=type_ini_pop)
+    
+    if (!is.null(object@suggestions))
+    {
+      ng <- min(nrow(object@suggestions), popSize)
+      if (ng > 0) Pop[1:ng, ] <- object@suggestions[1:ng, ]  
+    }
+    object@population <- Pop
+    
+    if (verbose)
+    {
+      print("Step 0. Initial population")
+      print(head(cbind(FitnessVal_vect, FitnessTst_vect, Complexity_vect, object@population),10))
+      readline(prompt="Press [enter] to continue")
+    }
+  } else
+  {
+    object_old <- object
+    if (is.null(iter_ini)) iter_ini <- object_old@iter else iter_ini <- min(iter_ini,object_old@iter)
+    if (iter_ini<=0) iter_ini <- 1
+    
+    object <- new("ga_parsimony", call = object_old@call, 
+                  min_param = object_old@min_param, max_param = object_old@max_param,
+                  nParams = object_old@nParams, feat_thres=object_old@feat_thres, 
+                  feat_mut_thres=object_old@feat_mut_thres, not_muted=object_old@not_muted, 
+                  rerank_error=object_old@rerank_error, iter_start_rerank=object_old@iter_start_rerank,
+                  nFeatures=object_old@nFeatures, 
+                  names_param = if (is.null(object_old@names_param)) character() else object_old@names_param,
+                  names_features = if (is.null(object_old@names_features)) character() else object_old@names_features, 
+                  popSize = object_old@popSize, iter = 0, early_stop = object_old@early_stop, maxiter = object_old@maxiter, 
+                  suggestions = object_old@suggestions, population = object_old@history[[iter_ini]]$population, 
+                  elitism = object_old@elitism, 
+                  pcrossover = object_old@pcrossover, minutes_total=0, best_score = -Inf,
+                  history = vector(mode = "list",length = object_old@maxiter),
+                  pmutation = if (is.numeric(object_old@pmutation)) object_old@pmutation else NA, 
+                  fitnessval = object_old@fitnessval, 
+                  fitnesstst=object_old@fitnesstst, complexity=object_old@complexity,
+                  summary = object_old@summary, bestSolList = object_old@bestSolList) 
+    Pop <- object@population
   }
   
-  
+
   # Main Loop
   # ---------
   for (iter in seq_len(maxiter))
@@ -162,7 +198,7 @@ ga_parsimony <- function (fitness, ...,
           # varlist <- ls(envir = parent.frame(), all.names = TRUE)
           # varlist <- varlist[varlist != "..."]
           # pkgs <- .packages() #.packages = pkgs, .export=varlist,.verbose=TRUE
-          Results_parallel <- foreach(i. = seq_len(popSize)) %DO% 
+          Results_parallel <- foreach(i. = seq_len(popSize)) %dopar% 
             {if (is.na(FitnessVal_vect[i.]) && sum(Pop[i.,(1+object@nParams):nvars])>0) fitness(Pop[i., ]) else c(FitnessVal_vect[i.],FitnessTst_vect[i.], Complexity_vect[i.])}
           # Extract results
           Results_parallel <- matrix(unlist(Results_parallel),object@popSize,ncol=3,byrow = TRUE)
@@ -190,6 +226,19 @@ ga_parsimony <- function (fitness, ...,
     FitnessVal_vect <- FitnessValSorted
     FitnessTst_vect <- FitnessTstSorted
     Complexity_vect <- ComplexitySorted
+    if (max(FitnessVal_vect)>object@best_score) 
+    {
+      object@best_score <- max(FitnessVal_vect)
+      object@solution_best_score <- c(object@best_score, 
+                                      FitnessTst_vect[which.max(FitnessVal_vect)], 
+                                      Complexity_vect[which.max(FitnessVal_vect)], 
+                                      as.vector(Pop[which.max(FitnessVal_vect), , drop = FALSE]))
+      names(object@solution_best_score) <- c("fitnessVal","fitnessTst","complexity",object@names_param,object@names_features)
+    }
+      
+       
+      
+      
 
     
     if (verbose)
@@ -257,6 +306,7 @@ ga_parsimony <- function (fitness, ...,
     
     # Call to 'monitor' function
     # --------------------------
+    if (!is.null(path_name_to_save_iter)) save(object,file=path_name_to_save_iter)
     if (is.function(monitor) && !verbose) monitor(object)  
     
     if (verbose)
@@ -387,6 +437,7 @@ ga_parsimony <- function (fitness, ...,
   
   
 setClassUnion("numericOrNA", members = c("numeric", "logical"))
+setClassUnion("matrixNULL", members = c("matrix", "NULL"))
 
 setClass(Class = "ga_parsimony", 
          representation(call = "language",
@@ -411,11 +462,13 @@ setClass(Class = "ga_parsimony",
                         maxiter = "numeric",
                         minutes_gen = "numeric",
                         minutes_total = "numeric",
-                        suggestions = "matrix",
+                        suggestions = "matrixNULL",
                         population = "matrix",
                         elitism = "numeric", 
                         pcrossover = "numeric", 
                         pmutation = "numericOrNA",
+                        best_score = "numericOrNA",
+                        solution_best_score = "numeric",
                         fitnessval = "numericOrNA",
                         fitnesstst = "numericOrNA",
                         complexity = "numericOrNA",
@@ -444,13 +497,6 @@ summary.ga_parsimony <- function(object, ...)
   rownames(domain) <- c("Min_param", "Max_param")
   colnames(domain) <- varnames
 
-  suggestions <- NULL
-  if(nrow(object@suggestions) > 0)
-  {
-    suggestions <- object@suggestions
-    dimnames(suggestions) <- list(1:nrow(suggestions), varnames)
-  }
-
   out <- list(popSize = object@popSize,
               maxiter = object@maxiter,
               early_stop = object@early_stop,
@@ -466,11 +512,13 @@ summary.ga_parsimony <- function(object, ...)
               domain = domain,
               suggestions = object@suggestions,
               iter = object@iter,
+              best_score = object@best_score,
               bestfitnessVal = object@bestfitnessVal,
               bestfitnessTst = object@bestfitnessTst,
               bestcomplexity = object@bestcomplexity,
               minutes_total = object@minutes_total,
-              bestsolution = object@bestsolution)
+              bestsolution = object@bestsolution,
+              solution_best_score=object@solution_best_score)
   class(out) <- "summary.ga_parsimony"
   return(out)
 }
@@ -514,6 +562,11 @@ print.summary.ga_parsimony <- function(x, digits = getOption("digits"), ...)
 
   cat("\n\nGA-PARSIMONY results: \n")
   cat(paste(" Iterations                =", format(x$iter, digits = digits), "\n"))
+  cat(paste(" Best validation score =", format(x$best_score, digits = digits), "\n"))
+  cat(paste("\n\nSolution with the best validation score in the whole GA process = \n"))
+  do.call(".printShortMatrix",c(list(x$solution_best_score, digits = digits),head=length(x$solution_best_score)))
+  
+  cat(paste("\n\nResults of the best individual at the last generation = \n"))
   cat(paste(" Best indiv's validat.cost =", format(x$bestfitnessVal, digits = digits), "\n"))
   cat(paste(" Best indiv's testing cost =", format(x$bestfitnessTst, digits = digits), "\n"))
   cat(paste(" Best indiv's complexity   =", format(x$bestcomplexity, digits = digits), "\n"))
