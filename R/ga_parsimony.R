@@ -91,6 +91,7 @@ ga_parsimony <- function (fitness, ...,
     {
       if (is.vector(suggestions)) stop("Provided suggestions is a vector")
       if (nvars != ncol(suggestions)) stop("Provided suggestions (ncol) matrix do not match the number of variables (model parameters + vector with selected features) in the problem!")
+      if (verbose) print(suggestions)
     }
   
   
@@ -146,9 +147,12 @@ ga_parsimony <- function (fitness, ...,
     }
   } else
   {
+    if (verbose) print("There is a GAparsimony 'object'!!!")
+    if (verbose) print(summary(object))
     object_old <- object
     if (is.null(iter_ini)) iter_ini <- object_old@iter else iter_ini <- min(iter_ini,object_old@iter)
     if (iter_ini<=0) iter_ini <- 1
+    print(paste0("Starting GA optimization with a provided GAparsimony 'object'. Using object's GA settings and its population from iter=",iter_ini,"."))
     
     object <- new("ga_parsimony", call = object_old@call, 
                   min_param = object_old@min_param, max_param = object_old@max_param,
@@ -161,12 +165,11 @@ ga_parsimony <- function (fitness, ...,
                   popSize = object_old@popSize, iter = 0, early_stop = object_old@early_stop, maxiter = object_old@maxiter, 
                   suggestions = object_old@suggestions, population = object_old@history[[iter_ini]]$population, 
                   elitism = object_old@elitism, 
-                  pcrossover = object_old@pcrossover, minutes_total=0, best_score = -Inf,
+                  pcrossover = object_old@pcrossover, minutes_total=0, best_score = object_old@best_score,
                   history = vector(mode = "list",length = object_old@maxiter),
                   pmutation = if (is.numeric(object_old@pmutation)) object_old@pmutation else NA, 
-                  fitnessval = object_old@fitnessval, 
-                  fitnesstst=object_old@fitnesstst, complexity=object_old@complexity,
-                  summary = object_old@summary, bestSolList = object_old@bestSolList) 
+                  fitnessval = FitnessVal_vect, fitnesstst=FitnessTst_vect, complexity=Complexity_vect,
+                  summary = fitnessSummary, bestSolList = bestSolList)
     Pop <- object@population
   }
   
@@ -226,9 +229,9 @@ ga_parsimony <- function (fitness, ...,
     FitnessVal_vect <- FitnessValSorted
     FitnessTst_vect <- FitnessTstSorted
     Complexity_vect <- ComplexitySorted
-    if (max(FitnessVal_vect)>object@best_score) 
+    if (max(FitnessVal_vect, na.rm=TRUE)>object@best_score) 
     {
-      object@best_score <- max(FitnessVal_vect)
+      object@best_score <- max(FitnessVal_vect, na.rm=TRUE)
       object@solution_best_score <- c(object@best_score, 
                                       FitnessTst_vect[which.max(FitnessVal_vect)], 
                                       Complexity_vect[which.max(FitnessVal_vect)], 
@@ -360,7 +363,7 @@ ga_parsimony <- function (fitness, ...,
     # ------------------
     if (is.function(crossover) & pcrossover > 0)
       {
-      nmating <- floor(popSize/2)
+      nmating <- floor(object@popSize/2)
       mating <- matrix(sample(1:(2 * nmating), size = (2 * nmating)), ncol = 2)
       for (i in seq_len(nmating))
         {
